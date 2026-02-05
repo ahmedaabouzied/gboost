@@ -97,18 +97,25 @@ func (s *Split) ComputeGain(y []float64, indices []int, parentVariance float64) 
 	return gain
 }
 
+// Tree predict single
+func (n *Node) predict(x []float64) float64 {
+	if n.Left == nil && n.Right == nil {
+		// Leaf node. Return value
+		return n.Value
+	}
+
+	if x[n.FeatureIndex] < n.Threshold {
+		return n.Left.predict(x)
+	} else {
+		return n.Right.predict(x)
+	}
+
+}
+
 func extractRows[T any](y []T, indices []int) []T {
 	res := make([]T, len(indices))
 	for j, i := range indices {
 		res[j] = y[i]
-	}
-	return res
-}
-
-func extractColumns[T any](X [][]T, indices []int) [][]T {
-	res := make([][]T, len(indices))
-	for j, i := range indices {
-		res[j] = X[i]
 	}
 	return res
 }

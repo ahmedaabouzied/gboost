@@ -1,16 +1,17 @@
 package gboost
 
 type GBM struct {
-	Config       Config
-	isFitted     bool
-	trainedTrees any
+	Config            Config
+	isFitted          bool
+	trees             []*Node
+	initialPrediction float64 // The base score from the loss func
+	loss              Loss
 }
 
 func New(cfg Config) *GBM {
 	return &GBM{
-		Config:       cfg,
-		isFitted:     false,
-		trainedTrees: nil,
+		Config:   cfg,
+		isFitted: false,
 	}
 }
 
@@ -25,13 +26,63 @@ func (g *GBM) Fit(X [][]float64, y []float64) error {
 	case !hasSimilarLength(X):
 		return ErrFeatureCountMismatch
 	}
+	//
+	// 1. Create loss function based on cfg.Loss
+	lossFunc := createLossFunction(g.Config)
+	g.loss = lossFunc
+
+	// 2. Get the basic initial prediction
+	initialPrediction := lossFunc.InitialPrediction(y)
+	g.initialPrediction = initialPrediction
+
+	// 3. Initial predictions slice
+	predictions := make([]float64, len(y))
+	for i := range predictions {
+		predictions[i] = initialPrediction
+	}
+
+	// 4. All indices
+	allIndices := make([]int, len(y))
+	for i := range allIndices {
+		allIndices[i] = i
+	}
+
+	// Training ...
+	for range g.Config.NEstimators {
+		residuals := lossFunc.NegativeGradient(y, predictions)
+		tree := buildTree(X, residuals, allIndices, 0, g.Config)
+		for j := range predictions {
+			predictions[j] += g.Config.LearningRate * tree.predict(X[j])
+		}
+
+		g.trees = append(g.trees, tree)
+	}
+
+	g.isFitted = true
 	return nil
 }
 
 func (g *GBM) Predict(X [][]float64) []float64 {
-	return []float64{}
+	results := make([]float64, len(X))
+	for i, x := range X {
+		results[i] = g.PredictSingle(x)
+	}
+	return results
 }
 
 func (g *GBM) PredictSingle(x []float64) float64 {
-	return 0.0
+	prediction := g.initialPrediction
+	for _, tree := range g.trees {
+		prediction += g.Config.LearningRate * tree.predict(x)
+	}
+	return prediction
+}
+
+func createLossFunction(cfg Config) Loss {
+	switch cfg.Loss {
+	case "mse":
+		return &MSELoss{}
+	default:
+		panic("unsupported loss function")
+	}
 }
