@@ -1,5 +1,7 @@
 package gboost
 
+import "math/rand"
+
 type GBM struct {
 	Config            Config
 	isFitted          bool
@@ -49,8 +51,12 @@ func (g *GBM) Fit(X [][]float64, y []float64) error {
 
 	// Training ...
 	for range g.Config.NEstimators {
+		trainIndices := allIndices
+		if g.Config.SubsampleRatio > 0 && g.Config.SubsampleRatio < 1.0 {
+			trainIndices = g.sampleIndices(allIndices)
+		}
 		residuals := lossFunc.NegativeGradient(y, predictions)
-		tree := buildTree(X, residuals, allIndices, 0, g.Config)
+		tree := buildTree(X, residuals, trainIndices, 0, g.Config)
 		for j := range predictions {
 			predictions[j] += g.Config.LearningRate * tree.predict(X[j])
 		}
@@ -90,6 +96,19 @@ func (g *GBM) PredictProbaAll(X [][]float64) []float64 {
 		results[i] = g.PredictProba(x)
 	}
 	return results
+}
+
+func (g *GBM) sampleIndices(indices []int) []int {
+	sampleRatio := g.Config.SubsampleRatio
+
+	n := len(indices)
+	sampleSize := int(float64(n) * sampleRatio)
+	shuffled := make([]int, n)
+	copy(shuffled, indices)
+	rand.Shuffle(n, func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+	return shuffled[0:sampleSize]
 }
 
 func createLossFunction(cfg Config) Loss {

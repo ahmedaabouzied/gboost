@@ -1,0 +1,61 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+gboost
+demo
+benchmark
+
+# Build output
+bin/
+dist/
+
+# Test binary
+*.test
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark outputs
+benchmark_results.json
+*.json
+!*.schema.json
+
+# Plots
+plots/
+*.png
+*.svg
+*.pdf
+
+# Model files
+*.gob
+model.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+*.egg-info/
+.eggs/
+venv/
+.venv/
