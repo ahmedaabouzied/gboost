@@ -78,6 +78,20 @@ func (g *GBM) PredictSingle(x []float64) float64 {
 	return prediction
 }
 
+// PredictProba returns probability for a single sample (applies sigmoid to log-odds)
+func (g *GBM) PredictProba(x []float64) float64 {
+	return sigmoid(g.PredictSingle(x))
+}
+
+// PredictProbaAll returns probabilities for multiple samples
+func (g *GBM) PredictProbaAll(X [][]float64) []float64 {
+	results := make([]float64, len(X))
+	for i, x := range X {
+		results[i] = g.PredictProba(x)
+	}
+	return results
+}
+
 func createLossFunction(cfg Config) Loss {
 	switch cfg.Loss {
 	case "mse":

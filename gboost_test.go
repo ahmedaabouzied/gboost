@@ -220,3 +220,126 @@ func TestGBMInitialPrediction(t *testing.T) {
 		t.Errorf("with 0 trees, prediction = %v, want %v (mean of y)", pred, expectedMean)
 	}
 }
+
+func TestGBMClassification(t *testing.T) {
+	// Binary classification: class 1 if x > 5, else class 0
+	X := [][]float64{
+		{1.0}, {2.0}, {3.0}, {4.0}, // class 0
+		{6.0}, {7.0}, {8.0}, {9.0}, // class 1
+	}
+	y := []float64{0, 0, 0, 0, 1, 1, 1, 1}
+
+	cfg := Config{
+		NEstimators:    20,
+		LearningRate:   0.3,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "logloss",
+	}
+
+	gbm := New(cfg)
+	err := gbm.Fit(X, y)
+	if err != nil {
+		t.Fatalf("Fit failed: %v", err)
+	}
+
+	// Check probabilities are in valid range
+	probs := gbm.PredictProbaAll(X)
+	for i, p := range probs {
+		if p < 0 || p > 1 {
+			t.Errorf("probability[%d] = %v, want in [0, 1]", i, p)
+		}
+	}
+
+	// Class 0 samples should have low probability
+	for i := 0; i < 4; i++ {
+		if probs[i] > 0.5 {
+			t.Errorf("class 0 sample %d has probability %v, want < 0.5", i, probs[i])
+		}
+	}
+
+	// Class 1 samples should have high probability
+	for i := 4; i < 8; i++ {
+		if probs[i] < 0.5 {
+			t.Errorf("class 1 sample %d has probability %v, want > 0.5", i, probs[i])
+		}
+	}
+}
+
+func TestGBMPredictProba(t *testing.T) {
+	X := [][]float64{{1.0}, {5.0}, {9.0}}
+	y := []float64{0, 0, 1}
+
+	cfg := Config{
+		NEstimators:    10,
+		LearningRate:   0.3,
+		MaxDepth:       2,
+		MinSamplesLeaf: 1,
+		Loss:           "logloss",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	// PredictProba should return sigmoid of PredictSingle
+	for _, x := range X {
+		rawPred := gbm.PredictSingle(x)
+		proba := gbm.PredictProba(x)
+		expectedProba := 1.0 / (1.0 + math.Exp(-rawPred))
+
+		if math.Abs(proba-expectedProba) > 0.0001 {
+			t.Errorf("PredictProba(%v) = %v, want sigmoid(%v) = %v", x, proba, rawPred, expectedProba)
+		}
+	}
+}
+
+func TestGBMPredictProbaAll(t *testing.T) {
+	X := [][]float64{{1.0}, {5.0}, {9.0}}
+	y := []float64{0, 1, 1}
+
+	cfg := Config{
+		NEstimators:    5,
+		LearningRate:   0.3,
+		MaxDepth:       2,
+		MinSamplesLeaf: 1,
+		Loss:           "logloss",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	// PredictProbaAll should match individual PredictProba calls
+	probas := gbm.PredictProbaAll(X)
+
+	for i, x := range X {
+		expected := gbm.PredictProba(x)
+		if probas[i] != expected {
+			t.Errorf("PredictProbaAll[%d] = %v, want %v", i, probas[i], expected)
+		}
+	}
+}
+
+func TestGBMPredictProbaBounds(t *testing.T) {
+	// Even with extreme predictions, probabilities should be in (0, 1)
+	X := [][]float64{{0.0}, {100.0}}
+	y := []float64{0, 1}
+
+	cfg := Config{
+		NEstimators:    50,
+		LearningRate:   0.5,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "logloss",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	testInputs := [][]float64{{-100.0}, {0.0}, {50.0}, {100.0}, {200.0}}
+	for _, x := range testInputs {
+		p := gbm.PredictProba(x)
+		if p <= 0 || p >= 1 {
+			t.Errorf("PredictProba(%v) = %v, want in (0, 1)", x, p)
+		}
+	}
+}
