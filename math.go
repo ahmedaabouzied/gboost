@@ -1,6 +1,10 @@
 package gboost
 
-import "golang.org/x/exp/constraints"
+import (
+	"math"
+
+	"golang.org/x/exp/constraints"
+)
 
 func mean[T constraints.Float | constraints.Integer](data []T) float64 {
 	if len(data) == 0 {
@@ -43,4 +47,9 @@ func variance[T constraints.Float | constraints.Integer](data []T) float64 {
 
 	s := sum(sd)
 	return s / float64(len(data))
+}
+
+func sigmoid[T constraints.Float | constraints.Integer](x T) float64 {
+	// sigmoid(x) = 1 / (1 + e^(-x))
+	return 1 / (1 + math.Exp(-float64(x)))
 }
