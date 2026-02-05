@@ -187,10 +187,261 @@ func TestExtract(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extract(tt.data, tt.indices)
+			got := extractRows(tt.data, tt.indices)
 			if !slices.Equal(got, tt.expected) {
-				t.Errorf("extract(%v, %v) = %v, want %v", tt.data, tt.indices, got, tt.expected)
+				t.Errorf("extractRows(%v, %v) = %v, want %v", tt.data, tt.indices, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestPartition(t *testing.T) {
+	X := [][]float64{
+		{1.0, 5.0},
+		{2.0, 4.0},
+		{3.0, 3.0},
+		{4.0, 2.0},
+		{5.0, 1.0},
+	}
+
+	tests := []struct {
+		name          string
+		indices       []int
+		featureIndex  int
+		threshold     float64
+		expectedLeft  []int
+		expectedRight []int
+	}{
+		{
+			name:          "split on feature 0, threshold 3",
+			indices:       []int{0, 1, 2, 3, 4},
+			featureIndex:  0,
+			threshold:     3.0,
+			expectedLeft:  []int{0, 1},       // values 1, 2 < 3
+			expectedRight: []int{2, 3, 4},    // values 3, 4, 5 >= 3
+		},
+		{
+			name:          "split on feature 1, threshold 3",
+			indices:       []int{0, 1, 2, 3, 4},
+			featureIndex:  1,
+			threshold:     3.0,
+			expectedLeft:  []int{3, 4},       // values 2, 1 < 3
+			expectedRight: []int{0, 1, 2},    // values 5, 4, 3 >= 3
+		},
+		{
+			name:          "split subset of indices",
+			indices:       []int{1, 3},
+			featureIndex:  0,
+			threshold:     3.0,
+			expectedLeft:  []int{1},          // value 2 < 3
+			expectedRight: []int{3},          // value 4 >= 3
+		},
+		{
+			name:          "all go left",
+			indices:       []int{0, 1},
+			featureIndex:  0,
+			threshold:     10.0,
+			expectedLeft:  []int{0, 1},
+			expectedRight: []int{},
+		},
+		{
+			name:          "all go right",
+			indices:       []int{3, 4},
+			featureIndex:  0,
+			threshold:     1.0,
+			expectedLeft:  []int{},
+			expectedRight: []int{3, 4},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			left, right := partition(X, tt.indices, tt.featureIndex, tt.threshold)
+			if !slices.Equal(left, tt.expectedLeft) {
+				t.Errorf("left = %v, want %v", left, tt.expectedLeft)
+			}
+			if !slices.Equal(right, tt.expectedRight) {
+				t.Errorf("right = %v, want %v", right, tt.expectedRight)
+			}
+		})
+	}
+}
+
+func TestFindBestSplit(t *testing.T) {
+	// Simple dataset: y increases with X[0]
+	// Best split should be on feature 0
+	X := [][]float64{
+		{1.0},
+		{2.0},
+		{3.0},
+		{4.0},
+	}
+	y := []float64{1.0, 2.0, 10.0, 11.0} // clear split between indices 1 and 2
+	indices := []int{0, 1, 2, 3}
+
+	split := findBestSplit(X, y, indices, 1)
+
+	if split == nil {
+		t.Fatal("expected a split, got nil")
+	}
+
+	if split.FeatureIndex != 0 {
+		t.Errorf("FeatureIndex = %d, want 0", split.FeatureIndex)
+	}
+
+	// Threshold should split [1,2] from [10,11], so threshold should be 3.0
+	if split.Threshold != 3.0 {
+		t.Errorf("Threshold = %v, want 3.0", split.Threshold)
+	}
+
+	if !slices.Equal(split.LeftIndices, []int{0, 1}) {
+		t.Errorf("LeftIndices = %v, want [0, 1]", split.LeftIndices)
+	}
+
+	if !slices.Equal(split.RightIndices, []int{2, 3}) {
+		t.Errorf("RightIndices = %v, want [2, 3]", split.RightIndices)
+	}
+
+	if split.Gain <= 0 {
+		t.Errorf("Gain = %v, want > 0", split.Gain)
+	}
+}
+
+func TestFindBestSplitNoValidSplit(t *testing.T) {
+	// All same values - no valid split possible
+	X := [][]float64{
+		{1.0},
+		{1.0},
+	}
+	y := []float64{5.0, 5.0}
+	indices := []int{0, 1}
+
+	split := findBestSplit(X, y, indices, 1)
+
+	if split != nil {
+		t.Errorf("expected nil split for identical data, got %+v", split)
+	}
+}
+
+func TestFindBestSplitMinSamplesLeaf(t *testing.T) {
+	X := [][]float64{
+		{1.0},
+		{2.0},
+		{3.0},
+	}
+	y := []float64{1.0, 2.0, 10.0}
+	indices := []int{0, 1, 2}
+
+	// With minSamplesLeaf=2, the only valid split is [0,1] vs [2]
+	// but [2] has only 1 sample, so no valid split
+	split := findBestSplit(X, y, indices, 2)
+
+	if split != nil {
+		// Check that both sides have at least 2 samples
+		if len(split.LeftIndices) < 2 || len(split.RightIndices) < 2 {
+			t.Errorf("split violates minSamplesLeaf: left=%d, right=%d",
+				len(split.LeftIndices), len(split.RightIndices))
+		}
+	}
+}
+
+func TestBuildTree(t *testing.T) {
+	X := [][]float64{
+		{1.0},
+		{2.0},
+		{3.0},
+		{4.0},
+	}
+	y := []float64{1.0, 1.0, 10.0, 10.0}
+	indices := []int{0, 1, 2, 3}
+	cfg := Config{
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+	}
+
+	tree := buildTree(X, y, indices, 0, cfg)
+
+	if tree == nil {
+		t.Fatal("expected a tree, got nil")
+	}
+
+	// Should be an internal node (has children)
+	if tree.Left == nil || tree.Right == nil {
+		t.Error("expected internal node with children")
+	}
+
+	// Children should be leaf nodes
+	if tree.Left.Left != nil || tree.Left.Right != nil {
+		t.Error("expected left child to be a leaf")
+	}
+	if tree.Right.Left != nil || tree.Right.Right != nil {
+		t.Error("expected right child to be a leaf")
+	}
+
+	// Check leaf values (should be means of their groups)
+	if tree.Left.Value != 1.0 {
+		t.Errorf("left leaf value = %v, want 1.0", tree.Left.Value)
+	}
+	if tree.Right.Value != 10.0 {
+		t.Errorf("right leaf value = %v, want 10.0", tree.Right.Value)
+	}
+}
+
+func TestBuildTreeMaxDepth(t *testing.T) {
+	X := [][]float64{
+		{1.0},
+		{2.0},
+		{3.0},
+		{4.0},
+	}
+	y := []float64{1.0, 2.0, 3.0, 4.0}
+	indices := []int{0, 1, 2, 3}
+	cfg := Config{
+		MaxDepth:       0, // force immediate leaf
+		MinSamplesLeaf: 1,
+	}
+
+	tree := buildTree(X, y, indices, 0, cfg)
+
+	if tree == nil {
+		t.Fatal("expected a tree, got nil")
+	}
+
+	// Should be a leaf node (no children)
+	if tree.Left != nil || tree.Right != nil {
+		t.Error("expected leaf node due to MaxDepth=0")
+	}
+
+	// Value should be mean of all y
+	expectedMean := 2.5
+	if tree.Value != expectedMean {
+		t.Errorf("leaf value = %v, want %v", tree.Value, expectedMean)
+	}
+}
+
+func TestBuildTreeSingleSample(t *testing.T) {
+	X := [][]float64{
+		{1.0},
+	}
+	y := []float64{5.0}
+	indices := []int{0}
+	cfg := Config{
+		MaxDepth:       10,
+		MinSamplesLeaf: 1,
+	}
+
+	tree := buildTree(X, y, indices, 0, cfg)
+
+	if tree == nil {
+		t.Fatal("expected a tree, got nil")
+	}
+
+	// Should be a leaf node
+	if tree.Left != nil || tree.Right != nil {
+		t.Error("expected leaf node for single sample")
+	}
+
+	if tree.Value != 5.0 {
+		t.Errorf("leaf value = %v, want 5.0", tree.Value)
 	}
 }
