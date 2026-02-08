@@ -529,3 +529,88 @@ func TestBuildTreeWithNonUniformHessians(t *testing.T) {
 		t.Errorf("right leaf value = %v, want 40.0", tree.Right.Value)
 	}
 }
+
+func TestCollectGainsLeafNode(t *testing.T) {
+	// A leaf node should not accumulate any gain
+	leaf := &Node{FeatureIndex: -1, Value: 5.0}
+	gains := make([]float64, 3)
+	leaf.collectGains(gains)
+	for i, g := range gains {
+		if g != 0 {
+			t.Errorf("gains[%d] = %v, want 0 for leaf node", i, g)
+		}
+	}
+}
+
+func TestCollectGainsSingleSplit(t *testing.T) {
+	// Internal node splitting on feature 1 with gain 0.75
+	node := &Node{
+		FeatureIndex: 1,
+		Gain:         0.75,
+		Left:         &Node{FeatureIndex: -1, Value: 1.0},
+		Right:        &Node{FeatureIndex: -1, Value: 2.0},
+	}
+	gains := make([]float64, 3)
+	node.collectGains(gains)
+
+	if gains[0] != 0 {
+		t.Errorf("gains[0] = %v, want 0", gains[0])
+	}
+	if gains[1] != 0.75 {
+		t.Errorf("gains[1] = %v, want 0.75", gains[1])
+	}
+	if gains[2] != 0 {
+		t.Errorf("gains[2] = %v, want 0", gains[2])
+	}
+}
+
+func TestCollectGainsMultiLevel(t *testing.T) {
+	// Root splits on feature 0 (gain=1.0)
+	//   Left splits on feature 1 (gain=0.5)
+	//   Right is leaf
+	node := &Node{
+		FeatureIndex: 0,
+		Gain:         1.0,
+		Left: &Node{
+			FeatureIndex: 1,
+			Gain:         0.5,
+			Left:         &Node{FeatureIndex: -1, Value: 1.0},
+			Right:        &Node{FeatureIndex: -1, Value: 2.0},
+		},
+		Right: &Node{FeatureIndex: -1, Value: 3.0},
+	}
+	gains := make([]float64, 2)
+	node.collectGains(gains)
+
+	if gains[0] != 1.0 {
+		t.Errorf("gains[0] = %v, want 1.0", gains[0])
+	}
+	if gains[1] != 0.5 {
+		t.Errorf("gains[1] = %v, want 0.5", gains[1])
+	}
+}
+
+func TestCollectGainsSameFeatureMultipleSplits(t *testing.T) {
+	// Feature 0 used at root (gain=1.0) and left child (gain=0.3)
+	// Gains should accumulate: feature 0 total = 1.3
+	node := &Node{
+		FeatureIndex: 0,
+		Gain:         1.0,
+		Left: &Node{
+			FeatureIndex: 0,
+			Gain:         0.3,
+			Left:         &Node{FeatureIndex: -1, Value: 1.0},
+			Right:        &Node{FeatureIndex: -1, Value: 2.0},
+		},
+		Right: &Node{FeatureIndex: -1, Value: 3.0},
+	}
+	gains := make([]float64, 2)
+	node.collectGains(gains)
+
+	if math.Abs(gains[0]-1.3) > 1e-10 {
+		t.Errorf("gains[0] = %v, want 1.3", gains[0])
+	}
+	if gains[1] != 0 {
+		t.Errorf("gains[1] = %v, want 0", gains[1])
+	}
+}

@@ -102,6 +102,14 @@ func main() {
 	}
 	logloss /= float64(len(yTest))
 	fmt.Printf("Test Log Loss: %.4f\n", logloss)
+
+	// Report feature importance.
+	featureNames := ds.Header[:len(ds.Header)-1]
+	importance := model.FeatureImportance()
+	fmt.Println("\n--- Feature Importance ---")
+	for i, name := range featureNames {
+		fmt.Printf("  %-15s %.4f\n", name, importance[i])
+	}
 }
 
 func saveSplit(path string, featureHeaders []string, X [][]float64, y []float64) {

@@ -121,6 +121,16 @@ func (n *Node) predict(x []float64) float64 {
 
 }
 
+func (n *Node) collectGains(index []float64) {
+	if n.Left == nil && n.Right == nil {
+		// Leaf node. Return value
+		return
+	}
+	index[n.FeatureIndex] += n.Gain
+	n.Left.collectGains(index)
+	n.Right.collectGains(index)
+}
+
 func extractRows[T any](y []T, indices []int) []T {
 	res := make([]T, len(indices))
 	for j, i := range indices {

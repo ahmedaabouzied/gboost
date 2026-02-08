@@ -343,3 +343,197 @@ func TestGBMPredictProbaBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestFeatureImportanceNotFitted(t *testing.T) {
+	gbm := New(DefaultConfig())
+	imp := gbm.FeatureImportance()
+	if len(imp) != 0 {
+		t.Errorf("expected empty slice before Fit, got length %d", len(imp))
+	}
+}
+
+func TestFeatureImportanceSumsToOne(t *testing.T) {
+	X := [][]float64{
+		{1.0, 10.0},
+		{2.0, 20.0},
+		{3.0, 30.0},
+		{4.0, 40.0},
+		{5.0, 50.0},
+	}
+	y := []float64{1.0, 2.0, 3.0, 4.0, 5.0}
+
+	cfg := Config{
+		NEstimators:    10,
+		LearningRate:   0.3,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "mse",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	imp := gbm.FeatureImportance()
+	if len(imp) != 2 {
+		t.Fatalf("expected 2 feature importances, got %d", len(imp))
+	}
+
+	total := 0.0
+	for _, v := range imp {
+		if v < 0 {
+			t.Errorf("feature importance = %v, want >= 0", v)
+		}
+		total += v
+	}
+	if math.Abs(total-1.0) > 1e-10 {
+		t.Errorf("feature importances sum to %v, want 1.0", total)
+	}
+}
+
+func TestFeatureImportanceMatchesFeatureCount(t *testing.T) {
+	X := [][]float64{
+		{1.0, 2.0, 3.0},
+		{4.0, 5.0, 6.0},
+		{7.0, 8.0, 9.0},
+		{10.0, 11.0, 12.0},
+	}
+	y := []float64{1.0, 2.0, 3.0, 4.0}
+
+	cfg := Config{
+		NEstimators:    5,
+		LearningRate:   0.3,
+		MaxDepth:       2,
+		MinSamplesLeaf: 1,
+		Loss:           "mse",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	imp := gbm.FeatureImportance()
+	if len(imp) != 3 {
+		t.Errorf("expected 3 feature importances, got %d", len(imp))
+	}
+}
+
+func TestFeatureImportanceDominantFeature(t *testing.T) {
+	// y = x0 exactly. x1 is random noise. Feature 0 should dominate.
+	X := [][]float64{
+		{1.0, 99.0},
+		{2.0, 3.0},
+		{3.0, 55.0},
+		{4.0, 12.0},
+		{5.0, 77.0},
+		{6.0, 41.0},
+		{7.0, 8.0},
+		{8.0, 63.0},
+	}
+	y := []float64{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0}
+
+	cfg := Config{
+		NEstimators:    20,
+		LearningRate:   0.3,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "mse",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	imp := gbm.FeatureImportance()
+	if imp[0] <= imp[1] {
+		t.Errorf("expected feature 0 (%.4f) > feature 1 (%.4f) since y = x0", imp[0], imp[1])
+	}
+}
+
+func TestFeatureImportanceIrrelevantFeature(t *testing.T) {
+	// y depends only on x0. x1 is constant (no variance, can never split on it).
+	X := [][]float64{
+		{1.0, 5.0},
+		{2.0, 5.0},
+		{3.0, 5.0},
+		{4.0, 5.0},
+	}
+	y := []float64{1.0, 2.0, 3.0, 4.0}
+
+	cfg := Config{
+		NEstimators:    10,
+		LearningRate:   0.3,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "mse",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	imp := gbm.FeatureImportance()
+	if imp[1] != 0 {
+		t.Errorf("expected feature 1 importance = 0 (constant feature), got %v", imp[1])
+	}
+	if imp[0] != 1.0 {
+		t.Errorf("expected feature 0 importance = 1.0 (only feature used), got %v", imp[0])
+	}
+}
+
+func TestFeatureImportanceZeroEstimators(t *testing.T) {
+	// With 0 estimators, no trees, no splits, all importances should be 0
+	X := [][]float64{{1.0}, {2.0}, {3.0}}
+	y := []float64{1.0, 2.0, 3.0}
+
+	cfg := Config{
+		NEstimators:    0,
+		LearningRate:   0.3,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "mse",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	imp := gbm.FeatureImportance()
+	for i, v := range imp {
+		if v != 0 {
+			t.Errorf("imp[%d] = %v, want 0 with no estimators", i, v)
+		}
+	}
+}
+
+func TestFeatureImportanceClassification(t *testing.T) {
+	// Binary classification: class determined by x0 > 5
+	X := [][]float64{
+		{1.0, 50.0}, {2.0, 40.0}, {3.0, 30.0}, {4.0, 20.0},
+		{6.0, 10.0}, {7.0, 60.0}, {8.0, 70.0}, {9.0, 80.0},
+	}
+	y := []float64{0, 0, 0, 0, 1, 1, 1, 1}
+
+	cfg := Config{
+		NEstimators:    20,
+		LearningRate:   0.3,
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+		Loss:           "logloss",
+	}
+
+	gbm := New(cfg)
+	gbm.Fit(X, y)
+
+	imp := gbm.FeatureImportance()
+	if len(imp) != 2 {
+		t.Fatalf("expected 2 importances, got %d", len(imp))
+	}
+
+	total := 0.0
+	for _, v := range imp {
+		total += v
+	}
+	if math.Abs(total-1.0) > 1e-10 {
+		t.Errorf("importances sum to %v, want 1.0", total)
+	}
+
+	if imp[0] <= imp[1] {
+		t.Errorf("expected feature 0 (%.4f) > feature 1 (%.4f) for classification on x0", imp[0], imp[1])
+	}
+}

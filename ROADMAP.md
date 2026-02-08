@@ -25,7 +25,7 @@ The foundational gradient boosting implementation, covering the full training an
 Algorithmic improvements to match the accuracy of established implementations and a comprehensive correctness test suite.
 
 - [x] **Newton-Raphson leaf optimization** — Replace mean-of-residuals leaf values with the second-order optimal `sum(gradients) / sum(hessians)`. This is the single largest accuracy improvement, enabling faster convergence and better probability calibration for classification. Requires adding a `Hessian` method to the `Loss` interface.
-- [ ] **Feature importance** — Compute gain-based feature importance by accumulating the variance reduction each feature contributes across all splits in all trees. Normalize to sum to 1.0. Essential for model interpretability.
+- [x] **Feature importance** — Compute gain-based feature importance by accumulating the variance reduction each feature contributes across all splits in all trees. Normalize to sum to 1.0. Essential for model interpretability.
 - [ ] **Reproducible randomness** — Accept a random seed in `Config` and use a local `*rand.Rand` for subsampling instead of the global source. Required for deterministic training and meaningful benchmarks.
 - [ ] **Configuration validation** — Validate all config fields in `Fit` (e.g., reject `LearningRate <= 0`, `MaxDepth < 1`, `NEstimators < 1`, `SubsampleRatio` outside (0, 1]).
 - [ ] **Correctness test suite** — Systematic tests beyond unit tests:

@@ -8,6 +8,9 @@ type GBM struct {
 	trees             []*Node
 	initialPrediction float64 // The base score from the loss func
 	loss              Loss
+
+	featureImportance []float64
+	numFeatures       int
 }
 
 func New(cfg Config) *GBM {
@@ -28,6 +31,10 @@ func (g *GBM) Fit(X [][]float64, y []float64) error {
 	case !hasSimilarLength(X):
 		return ErrFeatureCountMismatch
 	}
+
+	// Set the number of features from the X set.
+	g.numFeatures = len(X[0])
+
 	//
 	// 1. Create loss function based on cfg.Loss
 	lossFunc := createLossFunction(g.Config)
@@ -64,6 +71,8 @@ func (g *GBM) Fit(X [][]float64, y []float64) error {
 
 		g.trees = append(g.trees, tree)
 	}
+	// Calculate the featureImportance
+	g.calculateFeatureImportance()
 
 	g.isFitted = true
 	return nil
@@ -99,6 +108,13 @@ func (g *GBM) PredictProbaAll(X [][]float64) []float64 {
 	return results
 }
 
+func (g *GBM) FeatureImportance() []float64 {
+	if !g.isFitted {
+		return []float64{}
+	}
+	return g.featureImportance
+}
+
 func (g *GBM) sampleIndices(indices []int) []int {
 	sampleRatio := g.Config.SubsampleRatio
 
@@ -110,6 +126,21 @@ func (g *GBM) sampleIndices(indices []int) []int {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	})
 	return shuffled[0:sampleSize]
+}
+
+func (g *GBM) calculateFeatureImportance() {
+	res := make([]float64, g.numFeatures)
+	for _, tree := range g.trees {
+		tree.collectGains(res)
+	}
+	// Normalize the gains
+	sumOfGains := sum(res)
+	if sumOfGains != 0 {
+		for i := range res {
+			res[i] = res[i] / sumOfGains
+		}
+	}
+	g.featureImportance = res
 }
 
 func createLossFunction(cfg Config) Loss {
