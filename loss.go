@@ -5,6 +5,7 @@ import "math"
 type Loss interface {
 	InitialPrediction(y []float64) float64
 	NegativeGradient(y, pred []float64) []float64
+	Hessian(y, pred []float64) []float64
 }
 
 // MSELoss: implements "Mean Squared Error" loss.
@@ -24,6 +25,17 @@ func (l *MSELoss) NegativeGradient(y, pred []float64) []float64 {
 	return vsub(y, pred)
 }
 
+// Hessian returns the "Hessian" for the MSE loss function.
+// It's always 1.0 since first derivative of MSE is F - y.
+// Therefore the second derivative is 1.
+func (l *MSELoss) Hessian(y, pred []float64) []float64 {
+	res := make([]float64, len(y))
+	for i := range res {
+		res[i] = 1.0
+	}
+	return res
+}
+
 type LogLoss struct{}
 
 func (l *LogLoss) InitialPrediction(y []float64) float64 {
@@ -37,6 +49,15 @@ func (l *LogLoss) NegativeGradient(y, pred []float64) []float64 {
 	res := make([]float64, len(y))
 	for i := range y {
 		res[i] = y[i] - sigmoid(pred[i])
+	}
+	return res
+}
+
+func (l *LogLoss) Hessian(y, pred []float64) []float64 {
+	res := make([]float64, len(y))
+	for i := range y {
+		p := sigmoid(pred[i])
+		res[i] = p * (1 - p)
 	}
 	return res
 }
