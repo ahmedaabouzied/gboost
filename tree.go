@@ -18,32 +18,38 @@ type Split struct {
 	Gain         float64 // The variance reduction
 }
 
-func buildLeafNode(y []float64) *Node {
+func buildLeafNode(y, hessians []float64) *Node {
 	return &Node{
 		FeatureIndex: -1, // Not relevant in this case
 		Threshold:    0,  // Not relevant in this case
-		Value:        mean(y),
+		Value:        sum(y) / sum(hessians),
 	}
 }
 
 // buildTree recursively builds a decision tree picking up the best split it can.
-func buildTree(X [][]float64, y []float64, indices []int, depth int, cfg Config) *Node {
+func buildTree(X [][]float64, y []float64, hessians []float64, indices []int, depth int, cfg Config) *Node {
 	if depth >= cfg.MaxDepth || len(indices) < 2 {
-		return buildLeafNode(extractRows(y, indices))
+		return buildLeafNode(
+			extractRows(y, indices),
+			extractRows(hessians, indices),
+		)
 	}
 
 	split := findBestSplit(X, y, indices, cfg.MinSamplesLeaf)
 	if split == nil {
 		// Return leaf node
-		return buildLeafNode(extractRows(y, indices))
+		return buildLeafNode(
+			extractRows(y, indices),
+			extractRows(hessians, indices),
+		)
 	}
 
 	node := &Node{
 		FeatureIndex: split.FeatureIndex,
 		Threshold:    split.Threshold,
 	}
-	node.Left = buildTree(X, y, split.LeftIndices, depth+1, cfg)
-	node.Right = buildTree(X, y, split.RightIndices, depth+1, cfg)
+	node.Left = buildTree(X, y, hessians, split.LeftIndices, depth+1, cfg)
+	node.Right = buildTree(X, y, hessians, split.RightIndices, depth+1, cfg)
 	return node
 }
 

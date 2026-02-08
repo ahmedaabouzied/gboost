@@ -98,6 +98,23 @@ func TestMSELossNegativeGradient(t *testing.T) {
 	}
 }
 
+func TestMSELossHessian(t *testing.T) {
+	loss := &MSELoss{}
+
+	y := []float64{1, 2, 3, 4, 5}
+	pred := []float64{0.5, 1.5, 2.5, 3.5, 4.5}
+	got := loss.Hessian(y, pred)
+
+	if len(got) != len(y) {
+		t.Fatalf("len(Hessian) = %d, want %d", len(got), len(y))
+	}
+	for i, h := range got {
+		if h != 1.0 {
+			t.Errorf("Hessian[%d] = %v, want 1.0", i, h)
+		}
+	}
+}
+
 // ============ LogLoss Tests ============
 
 func TestLogLossInitialPrediction(t *testing.T) {
@@ -275,6 +292,60 @@ func TestLogLossNegativeGradientDirection(t *testing.T) {
 		got := loss.NegativeGradient(y, pred)
 		if got[0] >= 0 || got[0] < -0.1 {
 			t.Errorf("gradient = %v, want small negative", got[0])
+		}
+	})
+}
+
+func TestLogLossHessian(t *testing.T) {
+	loss := &LogLoss{}
+
+	t.Run("values equal p*(1-p)", func(t *testing.T) {
+		y := []float64{0, 1, 0, 1}
+		pred := []float64{0, 0, 2, -2}
+		got := loss.Hessian(y, pred)
+
+		if len(got) != len(y) {
+			t.Fatalf("len(Hessian) = %d, want %d", len(got), len(y))
+		}
+		for i := range got {
+			p := sigmoid(pred[i])
+			expected := p * (1 - p)
+			if math.Abs(got[i]-expected) > 1e-10 {
+				t.Errorf("Hessian[%d] = %v, want %v", i, got[i], expected)
+			}
+		}
+	})
+
+	t.Run("zero log-odds gives maximum hessian", func(t *testing.T) {
+		// At pred=0, sigmoid=0.5, so hessian = 0.25 (the maximum)
+		y := []float64{1}
+		pred := []float64{0}
+		got := loss.Hessian(y, pred)
+		if math.Abs(got[0]-0.25) > 1e-10 {
+			t.Errorf("Hessian at pred=0 = %v, want 0.25", got[0])
+		}
+	})
+
+	t.Run("extreme predictions give small hessian", func(t *testing.T) {
+		y := []float64{1, 0}
+		pred := []float64{10, -10} // very confident predictions
+		got := loss.Hessian(y, pred)
+		for i, h := range got {
+			if h >= 0.01 {
+				t.Errorf("Hessian[%d] = %v, want small value for extreme prediction", i, h)
+			}
+			if h <= 0 {
+				t.Errorf("Hessian[%d] = %v, want positive", i, h)
+			}
+		}
+	})
+
+	t.Run("hessian is independent of y", func(t *testing.T) {
+		pred := []float64{1.5}
+		h0 := loss.Hessian([]float64{0}, pred)
+		h1 := loss.Hessian([]float64{1}, pred)
+		if math.Abs(h0[0]-h1[0]) > 1e-10 {
+			t.Errorf("Hessian should not depend on y: got %v vs %v", h0[0], h1[0])
 		}
 	})
 }

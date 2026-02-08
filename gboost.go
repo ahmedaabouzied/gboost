@@ -56,7 +56,8 @@ func (g *GBM) Fit(X [][]float64, y []float64) error {
 			trainIndices = g.sampleIndices(allIndices)
 		}
 		residuals := lossFunc.NegativeGradient(y, predictions)
-		tree := buildTree(X, residuals, trainIndices, 0, g.Config)
+		hessians := lossFunc.Hessian(y, predictions)
+		tree := buildTree(X, residuals, hessians, trainIndices, 0, g.Config)
 		for j := range predictions {
 			predictions[j] += g.Config.LearningRate * tree.predict(X[j])
 		}

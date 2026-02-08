@@ -1,6 +1,7 @@
 package gboost
 
 import (
+	"math"
 	"slices"
 	"testing"
 )
@@ -359,7 +360,12 @@ func TestBuildTree(t *testing.T) {
 		MinSamplesLeaf: 1,
 	}
 
-	tree := buildTree(X, y, indices, 0, cfg)
+	hessians := make([]float64, len(y))
+	for i := range hessians {
+		hessians[i] = 1.0
+	}
+
+	tree := buildTree(X, y, hessians, indices, 0, cfg)
 
 	if tree == nil {
 		t.Fatal("expected a tree, got nil")
@@ -378,7 +384,7 @@ func TestBuildTree(t *testing.T) {
 		t.Error("expected right child to be a leaf")
 	}
 
-	// Check leaf values (should be means of their groups)
+	// Check leaf values: with hessians=1.0, sum(y)/sum(h) = mean(y)
 	if tree.Left.Value != 1.0 {
 		t.Errorf("left leaf value = %v, want 1.0", tree.Left.Value)
 	}
@@ -400,8 +406,12 @@ func TestBuildTreeMaxDepth(t *testing.T) {
 		MaxDepth:       0, // force immediate leaf
 		MinSamplesLeaf: 1,
 	}
+	hessians := make([]float64, len(y))
+	for i := range hessians {
+		hessians[i] = 1.0
+	}
 
-	tree := buildTree(X, y, indices, 0, cfg)
+	tree := buildTree(X, y, hessians, indices, 0, cfg)
 
 	if tree == nil {
 		t.Fatal("expected a tree, got nil")
@@ -412,7 +422,7 @@ func TestBuildTreeMaxDepth(t *testing.T) {
 		t.Error("expected leaf node due to MaxDepth=0")
 	}
 
-	// Value should be mean of all y
+	// Value should be mean of all y (since hessians are all 1.0)
 	expectedMean := 2.5
 	if tree.Value != expectedMean {
 		t.Errorf("leaf value = %v, want %v", tree.Value, expectedMean)
@@ -424,13 +434,14 @@ func TestBuildTreeSingleSample(t *testing.T) {
 		{1.0},
 	}
 	y := []float64{5.0}
+	hessians := []float64{1.0}
 	indices := []int{0}
 	cfg := Config{
 		MaxDepth:       10,
 		MinSamplesLeaf: 1,
 	}
 
-	tree := buildTree(X, y, indices, 0, cfg)
+	tree := buildTree(X, y, hessians, indices, 0, cfg)
 
 	if tree == nil {
 		t.Fatal("expected a tree, got nil")
@@ -443,5 +454,78 @@ func TestBuildTreeSingleSample(t *testing.T) {
 
 	if tree.Value != 5.0 {
 		t.Errorf("leaf value = %v, want 5.0", tree.Value)
+	}
+}
+
+func TestBuildLeafNodeNewtonRaphson(t *testing.T) {
+	// With uniform hessians, leaf value = mean(gradients)
+	t.Run("uniform hessians", func(t *testing.T) {
+		grads := []float64{2.0, 4.0, 6.0}
+		hess := []float64{1.0, 1.0, 1.0}
+		leaf := buildLeafNode(grads, hess)
+		// sum(grads)/sum(hess) = 12/3 = 4.0
+		if math.Abs(leaf.Value-4.0) > 1e-10 {
+			t.Errorf("leaf value = %v, want 4.0", leaf.Value)
+		}
+	})
+
+	// With non-uniform hessians, high-hessian samples get more weight
+	t.Run("non-uniform hessians", func(t *testing.T) {
+		grads := []float64{1.0, 3.0}
+		hess := []float64{0.1, 0.9}
+		leaf := buildLeafNode(grads, hess)
+		// sum(grads)/sum(hess) = 4.0/1.0 = 4.0
+		if math.Abs(leaf.Value-4.0) > 1e-10 {
+			t.Errorf("leaf value = %v, want 4.0", leaf.Value)
+		}
+	})
+
+	// Simulating LogLoss: uncertain samples (p≈0.5) have higher hessian
+	t.Run("logloss-like hessians", func(t *testing.T) {
+		// Sample 0: confident (p=0.9), hessian = 0.9*0.1 = 0.09, gradient = 0.1
+		// Sample 1: uncertain (p=0.5), hessian = 0.5*0.5 = 0.25, gradient = 0.5
+		grads := []float64{0.1, 0.5}
+		hess := []float64{0.09, 0.25}
+		leaf := buildLeafNode(grads, hess)
+		// sum(grads)/sum(hess) = 0.6/0.34 ≈ 1.7647
+		expected := 0.6 / 0.34
+		if math.Abs(leaf.Value-expected) > 1e-4 {
+			t.Errorf("leaf value = %v, want %v", leaf.Value, expected)
+		}
+	})
+}
+
+func TestBuildTreeWithNonUniformHessians(t *testing.T) {
+	// When hessians differ, leaf values should be sum(grad)/sum(hess), not mean(grad)
+	X := [][]float64{
+		{1.0},
+		{2.0},
+		{3.0},
+		{4.0},
+	}
+	grads := []float64{1.0, 1.0, 10.0, 10.0}
+	hessians := []float64{0.5, 0.5, 0.25, 0.25}
+	indices := []int{0, 1, 2, 3}
+	cfg := Config{
+		MaxDepth:       3,
+		MinSamplesLeaf: 1,
+	}
+
+	tree := buildTree(X, grads, hessians, indices, 0, cfg)
+
+	if tree == nil {
+		t.Fatal("expected a tree, got nil")
+	}
+	if tree.Left == nil || tree.Right == nil {
+		t.Fatal("expected internal node with children")
+	}
+
+	// Left group: grads=[1,1], hess=[0.5,0.5] → 2.0/1.0 = 2.0 (not mean=1.0)
+	if math.Abs(tree.Left.Value-2.0) > 1e-10 {
+		t.Errorf("left leaf value = %v, want 2.0", tree.Left.Value)
+	}
+	// Right group: grads=[10,10], hess=[0.25,0.25] → 20.0/0.5 = 40.0 (not mean=10.0)
+	if math.Abs(tree.Right.Value-40.0) > 1e-10 {
+		t.Errorf("right leaf value = %v, want 40.0", tree.Right.Value)
 	}
 }
