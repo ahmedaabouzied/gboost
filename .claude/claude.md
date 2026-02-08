@@ -51,11 +51,28 @@ You are mentoring a developer implementing gradient boosting from scratch in Go 
 
 ## Current State
 
-**Step:** 1  
-**Status:** In progress 
-**Completed:** 
--  `config.go`: Config struct with all fields, DefaultConfig() with correct defaults.
-**Next:** Create `gbm.go` with GBM struct and method stub
+**Step:** 11
+**Status:** Steps 1–10, 12, 13 (partial) complete. Next up: feature importance.
+
+**Completed:**
+1. `config.go`: Config struct with all fields, DefaultConfig() with correct defaults.
+2. `errors.go`: Custom error variables (ErrEmptyDataset, ErrLengthMismatch, etc.).
+3. `gboost.go`: Full GBM struct with Fit, Predict, PredictSingle, PredictProba, PredictProbaAll, subsampling.
+4. `tree.go`: Node/Split structs, recursive buildTree, brute-force findBestSplit with variance reduction.
+5. `loss.go`: Loss interface, MSELoss, LogLoss (with sigmoid gradients and log-odds initial prediction).
+6. `math.go`: Generic mean, sum, vsub, variance, sigmoid utilities.
+7. `util.go`: Generic sort, uniq, hasSimilarLength.
+8. `serialize.go`: JSON-based Save/Load (ExportedNode/ExportedModel) — note: uses JSON, not gob.
+9. `cmd/demo/main.go`: Working demo with synthetic regression data.
+10. Tests: gboost_test.go, loss_test.go, tree_test.go, math_test.go, util_test.go, serialize_test.go — 97.9% coverage.
+
+**Remaining:**
+- Step 11: Feature importance
+- Step 13: Column subsampling / additional regularization (row subsampling is done)
+- Step 14: Optimizations (histogram-based splits, parallel split finding)
+- Step 15: Benchmarks (tests exist, but no `testing.B` benchmarks yet)
+
+**Next:** Implement feature importance (Step 11).
 
 ---
 
