@@ -10,6 +10,24 @@ type Config struct {
 	Loss           string  // Loss function name
 }
 
+func (c Config) validate() error {
+	switch {
+	case c.NEstimators < 0:
+		return ErrInvalidNEstimators
+	case c.LearningRate <= 0:
+		return ErrInvalidLearningRate
+	case c.MaxDepth < 1:
+		return ErrInvalidMaxDepth
+	case c.MinSamplesLeaf < 1:
+		return ErrInvalidMinSamplesLeaf
+	case c.SubsampleRatio <= 0 || c.SubsampleRatio > 1.0:
+		return ErrInvalidSubsampleRatio
+	case c.Loss != "mse" && c.Loss != "logloss":
+		return ErrInvalidLoss
+	}
+	return nil
+}
+
 func DefaultConfig() Config {
 	return Config{
 		Seed:           0,

@@ -22,6 +22,10 @@ func New(cfg Config) *GBM {
 }
 
 func (g *GBM) Fit(X [][]float64, y []float64) error {
+	if err := g.Config.validate(); err != nil {
+		return err
+	}
+
 	switch {
 	case len(X) < 1:
 		return ErrEmptyDataset
@@ -155,6 +159,6 @@ func createLossFunction(cfg Config) Loss {
 	case "logloss":
 		return &LogLoss{}
 	default:
-		panic("unsupported loss function")
+		panic("unreachable: config.validate() should reject invalid loss")
 	}
 }

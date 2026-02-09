@@ -19,6 +19,7 @@ func TestSaveLoad(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -68,6 +69,7 @@ func TestSaveLoadClassification(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "logloss",
 	}
 
@@ -155,6 +157,7 @@ func TestSaveLoadPreservesTreeCount(t *testing.T) {
 		LearningRate:   0.1,
 		MaxDepth:       2,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -181,6 +184,7 @@ func TestJSONFormat(t *testing.T) {
 		LearningRate:   0.5,
 		MaxDepth:       2,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 

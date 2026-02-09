@@ -21,6 +21,7 @@ func TestGBMFitPredict(t *testing.T) {
 		LearningRate:   0.5,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -64,6 +65,7 @@ func TestGBMFitPredictNonLinear(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       4,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -105,6 +107,7 @@ func TestGBMMultipleFeatures(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -137,6 +140,7 @@ func TestGBMPredictSingle(t *testing.T) {
 		LearningRate:   0.5,
 		MaxDepth:       2,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -197,6 +201,88 @@ func TestGBMValidation(t *testing.T) {
 	}
 }
 
+func TestConfigValidation(t *testing.T) {
+	X := [][]float64{{1.0}, {2.0}, {3.0}}
+	y := []float64{1.0, 2.0, 3.0}
+
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr error
+	}{
+		{
+			name:    "negative NEstimators",
+			mutate:  func(c *Config) { c.NEstimators = -1 },
+			wantErr: ErrInvalidNEstimators,
+		},
+		{
+			name:    "zero LearningRate",
+			mutate:  func(c *Config) { c.LearningRate = 0 },
+			wantErr: ErrInvalidLearningRate,
+		},
+		{
+			name:    "negative LearningRate",
+			mutate:  func(c *Config) { c.LearningRate = -0.1 },
+			wantErr: ErrInvalidLearningRate,
+		},
+		{
+			name:    "zero MaxDepth",
+			mutate:  func(c *Config) { c.MaxDepth = 0 },
+			wantErr: ErrInvalidMaxDepth,
+		},
+		{
+			name:    "zero MinSamplesLeaf",
+			mutate:  func(c *Config) { c.MinSamplesLeaf = 0 },
+			wantErr: ErrInvalidMinSamplesLeaf,
+		},
+		{
+			name:    "zero SubsampleRatio",
+			mutate:  func(c *Config) { c.SubsampleRatio = 0 },
+			wantErr: ErrInvalidSubsampleRatio,
+		},
+		{
+			name:    "SubsampleRatio > 1",
+			mutate:  func(c *Config) { c.SubsampleRatio = 1.5 },
+			wantErr: ErrInvalidSubsampleRatio,
+		},
+		{
+			name:    "negative SubsampleRatio",
+			mutate:  func(c *Config) { c.SubsampleRatio = -0.5 },
+			wantErr: ErrInvalidSubsampleRatio,
+		},
+		{
+			name:    "invalid Loss",
+			mutate:  func(c *Config) { c.Loss = "huber" },
+			wantErr: ErrInvalidLoss,
+		},
+		{
+			name:    "empty Loss",
+			mutate:  func(c *Config) { c.Loss = "" },
+			wantErr: ErrInvalidLoss,
+		},
+		{
+			name:   "valid default config",
+			mutate: func(c *Config) {},
+		},
+		{
+			name:   "valid NEstimators zero",
+			mutate: func(c *Config) { c.NEstimators = 0 },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tt.mutate(&cfg)
+			gbm := New(cfg)
+			err := gbm.Fit(X, y)
+			if err != tt.wantErr {
+				t.Errorf("Fit() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestGBMInitialPrediction(t *testing.T) {
 	X := [][]float64{{1.0}, {2.0}, {3.0}}
 	y := []float64{10.0, 20.0, 30.0}
@@ -206,6 +292,7 @@ func TestGBMInitialPrediction(t *testing.T) {
 		LearningRate:   0.1,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -234,6 +321,7 @@ func TestGBMClassification(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "logloss",
 	}
 
@@ -275,6 +363,7 @@ func TestGBMPredictProba(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       2,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "logloss",
 	}
 
@@ -302,6 +391,7 @@ func TestGBMPredictProbaAll(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       2,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "logloss",
 	}
 
@@ -329,6 +419,7 @@ func TestGBMPredictProbaBounds(t *testing.T) {
 		LearningRate:   0.5,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "logloss",
 	}
 
@@ -367,6 +458,7 @@ func TestFeatureImportanceSumsToOne(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -404,6 +496,7 @@ func TestFeatureImportanceMatchesFeatureCount(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       2,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -435,6 +528,7 @@ func TestFeatureImportanceDominantFeature(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -462,6 +556,7 @@ func TestFeatureImportanceIrrelevantFeature(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -487,6 +582,7 @@ func TestFeatureImportanceZeroEstimators(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -625,6 +721,7 @@ func TestFeatureImportanceClassification(t *testing.T) {
 		LearningRate:   0.3,
 		MaxDepth:       3,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "logloss",
 	}
 
