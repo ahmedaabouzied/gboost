@@ -85,7 +85,9 @@ func fromExported(e *ExportedModel) *GBM {
 	}
 }
 
-// Save writes the trained model to a JSON file
+// Save writes the trained model to a JSON file at the given path.
+// Returns [ErrModelNotFitted] if the model has not been trained.
+// The saved file can be restored with [Load].
 func (g *GBM) Save(path string) error {
 	if !g.isFitted {
 		return ErrModelNotFitted
@@ -102,7 +104,8 @@ func (g *GBM) Save(path string) error {
 	return encoder.Encode(g.toExported())
 }
 
-// Load reads a trained model from a JSON file
+// Load reads a trained model from a JSON file previously written by [GBM.Save].
+// The returned model is ready for prediction without retraining.
 func Load(path string) (*GBM, error) {
 	file, err := os.Open(path)
 	if err != nil {

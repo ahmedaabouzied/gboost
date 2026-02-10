@@ -2,18 +2,22 @@ package gboost
 
 import "math/rand"
 
+// GBM is a gradient boosting machine model. Create one with [New], train it
+// with [GBM.Fit], and make predictions with [GBM.Predict] or [GBM.PredictProba].
 type GBM struct {
 	Config            Config
-	rnd               *rand.Rand // Used to produce the same model from the same dataset
+	rnd               *rand.Rand
 	isFitted          bool
 	trees             []*Node
-	initialPrediction float64 // The base score from the loss func
+	initialPrediction float64
 	loss              Loss
 
 	featureImportance []float64
 	numFeatures       int
 }
 
+// New creates an untrained GBM model with the given configuration.
+// Call [GBM.Fit] to train the model on data.
 func New(cfg Config) *GBM {
 	return &GBM{
 		Config:   cfg,
@@ -21,6 +25,13 @@ func New(cfg Config) *GBM {
 	}
 }
 
+// Fit trains the model on the given feature matrix X and target values y.
+// X is a slice of samples where each sample is a slice of feature values.
+// For regression (Loss="mse"), y contains continuous target values.
+// For classification (Loss="logloss"), y must contain only 0.0 and 1.0.
+//
+// Fit validates the configuration and input data, returning an error if
+// either is invalid. Calling Fit on an already-trained model retrains from scratch.
 func (g *GBM) Fit(X [][]float64, y []float64) error {
 	if err := g.Config.validate(); err != nil {
 		return err
@@ -87,6 +98,9 @@ func (g *GBM) Fit(X [][]float64, y []float64) error {
 	return nil
 }
 
+// Predict returns raw predictions for each sample in X.
+// For regression, these are the predicted target values.
+// For classification, these are log-odds; use [GBM.PredictProbaAll] for probabilities.
 func (g *GBM) Predict(X [][]float64) []float64 {
 	results := make([]float64, len(X))
 	for i, x := range X {
@@ -95,6 +109,8 @@ func (g *GBM) Predict(X [][]float64) []float64 {
 	return results
 }
 
+// PredictSingle returns the raw prediction for a single sample.
+// For regression, this is the predicted value. For classification, this is the log-odds.
 func (g *GBM) PredictSingle(x []float64) float64 {
 	prediction := g.initialPrediction
 	for _, tree := range g.trees {
@@ -103,12 +119,14 @@ func (g *GBM) PredictSingle(x []float64) float64 {
 	return prediction
 }
 
-// PredictProba returns probability for a single sample (applies sigmoid to log-odds)
+// PredictProba returns P(y=1) for a single sample by applying the sigmoid
+// function to the raw log-odds prediction. Only meaningful for classification (Loss="logloss").
 func (g *GBM) PredictProba(x []float64) float64 {
 	return sigmoid(g.PredictSingle(x))
 }
 
-// PredictProbaAll returns probabilities for multiple samples
+// PredictProbaAll returns P(y=1) for each sample in X.
+// Only meaningful for classification (Loss="logloss").
 func (g *GBM) PredictProbaAll(X [][]float64) []float64 {
 	results := make([]float64, len(X))
 	for i, x := range X {
@@ -117,6 +135,10 @@ func (g *GBM) PredictProbaAll(X [][]float64) []float64 {
 	return results
 }
 
+// FeatureImportance returns the gain-based feature importance scores, normalized
+// to sum to 1.0. Each value represents the fraction of total variance reduction
+// contributed by that feature across all splits in all trees.
+// Returns an empty slice if the model has not been trained.
 func (g *GBM) FeatureImportance() []float64 {
 	if !g.isFitted {
 		return []float64{}

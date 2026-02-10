@@ -1,13 +1,34 @@
 package gboost
 
+// Config controls the hyperparameters for training a [GBM] model.
 type Config struct {
-	Seed           int64   // Seed for randomizing to reproduce the same models from the same data.
-	NEstimators    int     // Number of trees
-	LearningRate   float64 // shrinkage factor
-	MaxDepth       int     // Maximum tree depth
-	MinSamplesLeaf int     // Minimum samples per leaf
-	SubsampleRatio float64 // Row sampling ratio
-	Loss           string  // Loss function name
+	// Seed for the random number generator used in subsampling.
+	// A fixed seed produces deterministic, reproducible models.
+	Seed int64
+
+	// NEstimators is the number of boosting rounds (trees) to build.
+	// More trees reduce training error but increase training time and risk of overfitting.
+	NEstimators int
+
+	// LearningRate (shrinkage) scales each tree's contribution.
+	// Smaller values require more trees but generally produce better generalization.
+	LearningRate float64
+
+	// MaxDepth is the maximum depth of each decision tree.
+	// Deeper trees capture more complex interactions but are more prone to overfitting.
+	MaxDepth int
+
+	// MinSamplesLeaf is the minimum number of samples required in a leaf node.
+	// Higher values prevent the model from learning overly specific patterns.
+	MinSamplesLeaf int
+
+	// SubsampleRatio is the fraction of training samples used to build each tree.
+	// Values less than 1.0 enable stochastic gradient boosting, which can reduce overfitting.
+	// Must be in the range (0, 1].
+	SubsampleRatio float64
+
+	// Loss is the loss function name: "mse" for regression or "logloss" for binary classification.
+	Loss string
 }
 
 func (c Config) validate() error {
@@ -28,6 +49,8 @@ func (c Config) validate() error {
 	return nil
 }
 
+// DefaultConfig returns a Config with sensible defaults for regression:
+// 100 trees, learning rate 0.1, max depth 6, no subsampling, MSE loss.
 func DefaultConfig() Config {
 	return Config{
 		Seed:           0,
