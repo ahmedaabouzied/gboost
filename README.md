@@ -1,6 +1,8 @@
 # gboost
 
-A gradient boosting machine library implemented from scratch in Go. Supports both regression (MSE) and binary classification (Log Loss), with Newton-Raphson leaf optimization, dataset utilities, model serialization, and a scikit-learn-comparable API.
+A gradient boosting machine learning library implemented from scratch in Go. Supports both regression (MSE) and binary classification (Log Loss), with Newton-Raphson leaf optimization, dataset utilities, model serialization, and a scikit-learn-comparable API.
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/ahmedaabouzied/gboost@v0.2.0.svg)](https://pkg.go.dev/github.com/ahmedaabouzied/gboost@v0.2.0)
 
 ```go
 model := gboost.New(gboost.DefaultConfig())
