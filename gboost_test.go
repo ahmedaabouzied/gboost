@@ -754,7 +754,7 @@ func TestConvergence(t *testing.T) {
 	model := New(DefaultConfig())
 
 	err := model.Fit(X, y)
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 
 	preds := make([]float64, len(X))
 	for i := range preds {
@@ -781,10 +781,27 @@ func TestOverfitting(t *testing.T) {
 	config.NEstimators = 200
 
 	model := New(config)
-	assert.Nil(t, model.Fit(X, y))
+	assert.NoError(t, model.Fit(X, y))
 	preds := model.Predict(X)
 	assert.True(t, (mse(preds, y) < 1e-6))
 	// Model is over-fitted.
+}
+
+func TestIdenticalTargets(t *testing.T) {
+	X, _ := generateLinearData()
+	y := make([]float64, len(X))
+	for i := range y {
+		y[i] = 5.0
+	}
+
+	model := New(DefaultConfig())
+	assert.NoError(t, model.Fit(X, y))
+
+	X_test, _ := generateLinearData()
+	preds := model.Predict(X_test)
+	for _, pred := range preds {
+		assert.Equal(t, 5.0, pred)
+	}
 }
 
 func mse(x, y []float64) float64 {
