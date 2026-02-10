@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.2"
+      - run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  badge:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.2"
+      - name: Generate coverage
+        run: go test -count=1 -coverprofile=coverage.out .
+      - name: Update badge
+        env:
+          COVERAGE_GIST_PAT: ${{ secrets.COVERAGE_GIST_PAT }}
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep ^total: | awk '{print $3}' | tr -d '%')
+
+          if [ "$(echo "$COVERAGE >= 90" | bc)" -eq 1 ]; then
+            COLOR="brightgreen"
+          elif [ "$(echo "$COVERAGE >= 75" | bc)" -eq 1 ]; then
+            COLOR="yellow"
+          elif [ "$(echo "$COVERAGE >= 60" | bc)" -eq 1 ]; then
+            COLOR="orange"
+          else
+            COLOR="red"
+          fi
+
+          curl -s -X PATCH \
+            -H "Authorization: token ${COVERAGE_GIST_PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/gists/ebe93926763deca896636894a1bd3bfc \
+            -d "{\"files\":{\"gboost-coverage.json\":{\"content\":\"{\\\"schemaVersion\\\":1,\\\"label\\\":\\\"coverage\\\",\\\"message\\\":\\\"${COVERAGE}%\\\",\\\"color\\\":\\\"${COLOR}\\\"}\"}}}"

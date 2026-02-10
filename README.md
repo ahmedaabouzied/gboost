@@ -3,6 +3,7 @@
 A gradient boosting machine learning library implemented from scratch in Go. Supports both regression (MSE) and binary classification (Log Loss), with Newton-Raphson leaf optimization, dataset utilities, model serialization, and a scikit-learn-comparable API.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/ahmedaabouzied/gboost@v0.2.0.svg)](https://pkg.go.dev/github.com/ahmedaabouzied/gboost@v0.2.0)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ahmedaabouzied/ebe93926763deca896636894a1bd3bfc/raw/gboost-coverage.json)](https://github.com/ahmedaabouzied/gboost/actions)
 
 ```go
 model := gboost.New(gboost.DefaultConfig())

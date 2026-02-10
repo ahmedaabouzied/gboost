@@ -45,6 +45,9 @@ plots/
 *.gob
 model.json
 
+# Coverage
+coverage.out
+
 # Temporary files
 tmp/
 temp/
