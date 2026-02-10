@@ -832,6 +832,16 @@ func TestDataWithSingleFeature(t *testing.T) {
 	assert.True(t, mse(model.Predict(X), y) < 1.0)
 }
 
+func TestDataWithSingleSample(t *testing.T) {
+	X := [][]float64{{0.1, 0.2, 0.3}}
+	y := []float64{1.2}
+
+	model := New(DefaultConfig())
+	assert.NoError(t, model.Fit(X, y))
+
+	assert.True(t, mse(model.Predict(X), y) < 1.0)
+}
+
 func mse(x, y []float64) float64 {
 	mse := 0.0
 	for j := range y {
