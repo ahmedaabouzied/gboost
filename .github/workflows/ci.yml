@@ -31,7 +31,7 @@ jobs:
       - uses: ahmedaabouzied/goprove-action@v1
         with:
           path: ./...
-          fail-on-warnings: false
+          fail-on-warnings: true
 
   badge:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
