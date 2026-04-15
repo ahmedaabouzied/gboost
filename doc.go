@@ -35,4 +35,31 @@
 //
 //	model.Save("model.json")
 //	loaded, err := gboost.Load("model.json")
+//
+// # SHAP Explanations
+//
+// Explain individual predictions with per-feature contributions computed by
+// TreeSHAP (Lundberg 2018). SHAP values are additive: for every sample,
+// sum(phi) + BaseValue == PredictSingle.
+//
+//	phi, err := model.ShapValuesSingle(x)    // []float64, one value per feature
+//	base := model.BaseValue()                // expected model output over training
+//
+//	// Additivity check (holds exactly for raw model output):
+//	sum := base
+//	for _, v := range phi {
+//	    sum += v
+//	}
+//	// sum == model.PredictSingle(x)
+//
+// For classification (Loss="logloss"), contributions are in log-odds space —
+// additivity holds on the raw output, not on probabilities.
+//
+// Global SHAP-based importance: mean absolute contribution per feature across
+// a dataset. Unlike gain-based [GBM.FeatureImportance], it reflects actual
+// impact on predictions and is in the model's output units (not normalized):
+//
+//	imp, err := model.ShapImportance(X)
+//	// Computing over a slice (e.g. positive-class samples only) yields a
+//	// different ranking — slice-level explanations gain-based cannot produce.
 package gboost

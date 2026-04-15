@@ -94,6 +94,25 @@ loaded, err := gboost.Load("model.json")
 loaded.Predict(XTest)
 ```
 
+### SHAP Explanations
+
+Explain individual predictions and compute globally consistent feature importance with TreeSHAP:
+
+```go
+// Per-sample explanations: phi[j] is feature j's contribution to the raw prediction.
+phi, _ := model.ShapValuesSingle(x)     // []float64, one value per feature
+base := model.BaseValue()               // expected model output over training
+
+// Additivity: sum(phi) + base == model.PredictSingle(x).
+// For logloss classifiers, this holds in log-odds space.
+
+// Batch version for a whole dataset:
+shapMatrix, _ := model.ShapValues(X)    // [][]float64, shape len(X) × numFeatures
+
+// SHAP-based global importance (mean |phi| across X, in model output units):
+imp, _ := model.ShapImportance(X)
+```
+
 ## How Gradient Boosting Works
 
 Gradient boosting builds an ensemble of weak learners (decision trees) sequentially. Each tree corrects the errors of the previous ensemble by fitting to the **negative gradient** of the loss function. The final prediction is the sum of all tree outputs, scaled by a learning rate.
@@ -224,6 +243,48 @@ model.Fit(X, y)
 importance := model.FeatureImportance() // []float64, sums to 1.0
 ```
 
+### SHAP Explanations (TreeSHAP)
+
+Gain-based importance tells you how the *model was built*. To explain what the model *actually predicts* for a given sample, gboost implements **TreeSHAP** (Lundberg et al., 2018) — an exact, polynomial-time algorithm for computing Shapley values on tree ensembles.
+
+A Shapley value is the average marginal contribution of a feature across all orderings in which features can be added to the "known" set. For feature $d$ on sample $x$:
+
+$$\phi_d(x) = \sum_{S \subseteq F \setminus \{d\}} \frac{|S|! \, (|F| - |S| - 1)!}{|F|!} \left[ f(S \cup \{d\}) - f(S) \right]$$
+
+where $F$ is the set of all features and $f(S)$ is the expected model output when only features in $S$ are known. For a tree, $f(S)$ is computed by following the sample's actual branch at splits on features in $S$ and taking the cover-weighted average of children at every other split.
+
+A naive enumeration over $2^{|F|}$ subsets is intractable. TreeSHAP computes all $\phi_d$ simultaneously in $O(T \cdot L \cdot D^2)$ time per sample, where $T$ is the number of trees, $L$ is the number of leaves per tree, and $D$ is the tree depth — by descending each tree once and carrying a compact representation of the subset-weight polynomial along the root-to-leaf path.
+
+**Additivity.** SHAP values decompose the raw prediction exactly:
+
+$$\text{PredictSingle}(x) = \text{BaseValue} + \sum_{d=1}^{|F|} \phi_d(x)$$
+
+where $\text{BaseValue} = F_0 + \eta \sum_{m=1}^{M} \mathbb{E}[h_m(X)]$ is the ensemble's expected output over the training distribution. For classification, this identity holds in **log-odds space**; there is no additive decomposition of the probability because the sigmoid is nonlinear.
+
+```go
+phi, _ := model.ShapValuesSingle(x)   // feature-level contributions
+base := model.BaseValue()             // expected prediction
+
+shapMatrix, _ := model.ShapValues(X)  // batch: len(X) × numFeatures
+```
+
+### SHAP-Based Feature Importance
+
+Global SHAP importance is the column-wise mean of absolute contributions:
+
+$$\text{importance}_{\text{shap}}(j) = \frac{1}{n} \sum_{i=1}^{n} \lvert \phi_j(x_i) \rvert$$
+
+It differs from gain-based importance in three ways:
+
+1. **Consistency.** Modifying a model to rely *more* on a feature can cause its gain-based importance to *decrease* — Lundberg's motivating counterexample and the reason TreeSHAP exists. SHAP-based importance satisfies the consistency axiom by construction.
+2. **Interpretable units.** The result is in the model's output units (target units for MSE, log-odds for logloss) — not a normalized ratio. A value of 1.12 log-odds is directly meaningful; 0.45 of total gain is not.
+3. **Slice-aware.** Computing SHAP importance on different subsets of $X$ (e.g. positive-class samples only) yields different rankings, surfacing subgroup-specific drivers. Gain-based importance is a single number per model and cannot do this.
+
+```go
+imp, _ := model.ShapImportance(X)           // importance over full dataset
+impHighRisk, _ := model.ShapImportance(XHighRisk)  // ranking can differ by slice
+```
+
 ### Subsampling
 
 When `SubsampleRatio < 1.0`, each tree is trained on a random subset of the training data. This introduces stochasticity that can reduce overfitting, as described in Friedman (2002).
@@ -256,6 +317,10 @@ func (g *GBM) PredictSingle(x []float64) float64        // Raw prediction for on
 func (g *GBM) PredictProba(x []float64) float64          // P(y=1) for one sample (classification)
 func (g *GBM) PredictProbaAll(X [][]float64) []float64   // P(y=1) for all samples (classification)
 func (g *GBM) FeatureImportance() []float64               // Gain-based feature importance (sums to 1.0)
+func (g *GBM) ShapValuesSingle(x []float64) ([]float64, error)         // Per-feature SHAP contributions for one sample
+func (g *GBM) ShapValues(X [][]float64) ([][]float64, error)            // Per-feature SHAP contributions for a batch
+func (g *GBM) BaseValue() float64                                       // Expected model output; SHAP contributions are measured above this
+func (g *GBM) ShapImportance(X [][]float64) ([]float64, error)          // mean(|phi|) per feature across X (log-odds units for logloss)
 func (g *GBM) Save(path string) error                    // Save model to JSON
 func Load(path string) (*GBM, error)                      // Load model from JSON
 ```
@@ -474,8 +539,9 @@ for name, imp in zip(features, model.feature_importances_):
 ```
 gboost/
     config.go          # Config struct and DefaultConfig()
-    gboost.go          # GBM struct, Fit, Predict, PredictProba
+    gboost.go          # GBM struct, Fit, Predict, PredictProba, SHAP API
     tree.go            # Decision tree: Node, Split, buildTree, findBestSplit
+    shap.go            # TreeSHAP path primitives and per-tree recursion
     loss.go            # Loss interface with Hessian, MSELoss, LogLoss
     math.go            # Generic math utilities (mean, sum, variance, sigmoid)
     util.go            # Helper functions (sort, uniq, validation)
@@ -484,8 +550,8 @@ gboost/
     errors.go          # Sentinel errors
     *_test.go          # Tests for each module (~97.9% coverage)
     cmd/
-        demo/main.go   # Regression example with synthetic data
-        iris/main.go   # Classification example with Iris dataset
+        demo/main.go   # Regression example with synthetic data + SHAP
+        iris/main.go   # Classification example with Iris dataset + SHAP
     data/
         iris_binary.csv # Iris dataset (versicolor vs virginica)
 ```
@@ -520,6 +586,12 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. In summary:
 
 3. **scikit-learn: GradientBoostingClassifier.** [[documentation]](https://scikit-learn.org/stable/modules/ensemble.html#gradient-boosted-trees)
    - The Python reference implementation used for comparison. scikit-learn extends the basic algorithm with Newton-Raphson leaf optimization (using second derivatives for optimal leaf weights), Friedman's split improvement criterion, and other enhancements.
+
+4. **Lundberg, S.M., Erion, G.G., and Lee, S.-I. (2018).** "Consistent Individualized Feature Attribution for Tree Ensembles." *arXiv:1802.03888*. [[pdf]](https://arxiv.org/abs/1802.03888)
+   - Introduces TreeSHAP, the exact polynomial-time algorithm for computing Shapley values on tree ensembles used by `ShapValues` / `ShapValuesSingle`. Proves that common heuristic attribution methods (including gain-based importance and path-based attribution) violate the consistency axiom, and that Shapley values are the unique solution that satisfies it.
+
+5. **Lundberg, S.M. and Lee, S.-I. (2017).** "A Unified Approach to Interpreting Model Predictions." *Advances in Neural Information Processing Systems 30*. [[pdf]](https://proceedings.neurips.cc/paper/2017/hash/8a20a8621978632d76c43dfd28b67767-Abstract.html)
+   - The paper that unified LIME, DeepLIFT, and several other methods under the SHAP (SHapley Additive exPlanations) framework and established the additivity / consistency / local accuracy axioms satisfied by Shapley values.
 
 ## License
 

@@ -149,6 +149,19 @@ func (g *GBM) FeatureImportance() []float64 {
 	return g.featureImportance
 }
 
+// ShapValues returns per-sample, per-feature SHAP contributions computed with
+// TreeSHAP (Lundberg 2018). The returned matrix has shape len(X) × numFeatures:
+// result[i][j] is feature j's contribution to the raw prediction for X[i].
+//
+// SHAP values are additive in the model's raw output space. For every sample,
+//
+//	sum(result[i]) + [GBM.BaseValue]() == [GBM.PredictSingle](X[i])
+//
+// For classification (Loss="logloss"), contributions are in log-odds; there is
+// no additive decomposition in probability space.
+//
+// Returns [ErrModelNotFitted] if the model has not been trained, or
+// [ErrFeatureCountMismatch] if any row of X does not have numFeatures columns.
 func (g *GBM) ShapValues(X [][]float64) ([][]float64, error) {
 	result := make([][]float64, len(X))
 
@@ -163,6 +176,17 @@ func (g *GBM) ShapValues(X [][]float64) ([][]float64, error) {
 	return result, nil
 }
 
+// BaseValue returns the expected model output over the training distribution,
+// above which SHAP contributions are measured. It equals the initial prediction
+// plus the sum of each tree's cover-weighted expected value scaled by the
+// learning rate.
+//
+// For every sample x:
+//
+//	sum([GBM.ShapValuesSingle](x)) + BaseValue() == [GBM.PredictSingle](x)
+//
+// For classification, this is in log-odds space. Returns 0 if the model has
+// not been trained.
 func (g *GBM) BaseValue() float64 {
 	if !g.isFitted {
 		return 0
@@ -176,6 +200,19 @@ func (g *GBM) BaseValue() float64 {
 	return v
 }
 
+// ShapValuesSingle returns per-feature SHAP contributions for a single sample x
+// using TreeSHAP. result[j] is feature j's contribution to the raw prediction.
+//
+// SHAP values satisfy additivity:
+//
+//	sum(result) + [GBM.BaseValue]() == [GBM.PredictSingle](x)
+//
+// For classification (Loss="logloss"), the contributions are in log-odds space
+// and sum to the raw log-odds, not to the probability.
+//
+// Returns [ErrModelNotFitted] if the model has not been trained, or
+// [ErrFeatureCountMismatch] if len(x) does not match the number of features
+// the model was trained on.
 func (g *GBM) ShapValuesSingle(x []float64) ([]float64, error) {
 	if !g.isFitted {
 		return nil, ErrModelNotFitted
@@ -203,6 +240,21 @@ func (g *GBM) ShapValuesSingle(x []float64) ([]float64, error) {
 	return phi, nil
 }
 
+// ShapImportance returns SHAP-based global feature importance computed over X.
+// importance[j] is the mean absolute SHAP value of feature j across the rows
+// of X:
+//
+//	importance[j] = mean over i of |ShapValues(X)[i][j]|
+//
+// Unlike the gain-based [GBM.FeatureImportance], the result is in the model's
+// output units (log-odds for classification) and is not normalized to sum to
+// 1. Computing importance over different subsets of X (e.g. positive vs.
+// negative class samples) surfaces different feature rankings — useful for
+// slice-level explanations that gain-based importance cannot produce.
+//
+// Returns [ErrModelNotFitted] if the model has not been trained,
+// [ErrEmptyDataset] if X is empty, or [ErrFeatureCountMismatch] if any row of
+// X does not have numFeatures columns.
 func (g *GBM) ShapImportance(X [][]float64) ([]float64, error) {
 	if !g.isFitted {
 		return nil, ErrModelNotFitted
