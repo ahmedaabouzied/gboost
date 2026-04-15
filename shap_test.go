@@ -723,3 +723,303 @@ func (r *detRand) Float64() float64 {
 	r.state ^= r.state << 17
 	return float64(r.state%1000000) / 1000000.0
 }
+
+// ==========================================================================
+// ShapImportance tests (step 5)
+//
+// Ground-truth numbers come from the by-hand example's SHAP values:
+//   x=(1,1) -> phi=[13, 12]       x=(0,1) -> phi=[-19.5, 4.5]
+//   x=(1,0) -> phi=[7, -12]       x=(0,0) -> phi=[-10.5, -4.5]
+// ==========================================================================
+
+// TestShapImportance_AllFourByHand: importance over all four points equals
+// column-wise mean(|phi|) = [(13+19.5+7+10.5)/4, (12+4.5+12+4.5)/4] = [12.5, 8.25].
+func TestShapImportance_AllFourByHand(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	X := [][]float64{{1, 1}, {0, 1}, {1, 0}, {0, 0}}
+
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !shapAlmostEqual(imp[0], 12.5) || !shapAlmostEqual(imp[1], 8.25) {
+		t.Errorf("imp = %v, want [12.5, 8.25]", imp)
+	}
+}
+
+// TestShapImportance_SingleSample: with len(X)=1, importance equals |phi|
+// of that single sample.
+func TestShapImportance_SingleSample(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	imp, err := g.ShapImportance([][]float64{{1, 1}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !shapAlmostEqual(imp[0], 13) || !shapAlmostEqual(imp[1], 12) {
+		t.Errorf("imp = %v, want [13, 12]", imp)
+	}
+}
+
+// TestShapImportance_AbsNotSignedMean: if feature j's phi is positive on one
+// sample and negative on another, importance must NOT cancel to zero — we take
+// mean of absolute values.
+func TestShapImportance_AbsNotSignedMean(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	// x=(1,1) -> phi[1]=12;  x=(1,0) -> phi[1]=-12.  Signed mean = 0, |mean| = 12.
+	X := [][]float64{{1, 1}, {1, 0}}
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if shapAlmostEqual(imp[1], 0) {
+		t.Errorf("imp[1] = 0 suggests signed-mean (cancellation); want mean(|phi|)=12")
+	}
+	if !shapAlmostEqual(imp[1], 12) {
+		t.Errorf("imp[1] = %v, want 12", imp[1])
+	}
+}
+
+// TestShapImportance_MatchesManualBatchMean: ShapImportance must equal what
+// you'd get by calling ShapValues and averaging |.| manually.
+func TestShapImportance_MatchesManualBatchMean(t *testing.T) {
+	X, y := syntheticRegressionData(40, 3, 11)
+	cfg := DefaultConfig()
+	cfg.NEstimators = 10
+	cfg.MaxDepth = 3
+	cfg.Seed = 77
+	g := New(cfg)
+	if err := g.Fit(X, y); err != nil {
+		t.Fatalf("Fit: %v", err)
+	}
+
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("ShapImportance: %v", err)
+	}
+
+	shap, err := g.ShapValues(X)
+	if err != nil {
+		t.Fatalf("ShapValues: %v", err)
+	}
+	want := make([]float64, len(shap[0]))
+	for _, row := range shap {
+		for j, v := range row {
+			want[j] += math.Abs(v)
+		}
+	}
+	for j := range want {
+		want[j] /= float64(len(X))
+	}
+
+	for j := range imp {
+		if !shapAlmostEqual(imp[j], want[j]) {
+			t.Errorf("imp[%d] = %v, want %v", j, imp[j], want[j])
+		}
+	}
+}
+
+// TestShapImportance_NonNegative: by construction, all values are mean of
+// absolute values, so every entry must be >= 0.
+func TestShapImportance_NonNegative(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	X := [][]float64{{1, 1}, {0, 1}, {1, 0}, {0, 0}}
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for j, v := range imp {
+		if v < 0 {
+			t.Errorf("imp[%d] = %v < 0", j, v)
+		}
+	}
+}
+
+// TestShapImportance_Length: return slice has length == numFeatures.
+func TestShapImportance_Length(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	imp, err := g.ShapImportance([][]float64{{1, 1}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(imp) != 2 {
+		t.Errorf("len(imp) = %d, want 2", len(imp))
+	}
+}
+
+// TestShapImportance_FeatureNeverSplit: a feature never used by any tree has
+// importance exactly 0, no matter what values appear for it in X.
+func TestShapImportance_FeatureNeverSplit(t *testing.T) {
+	// Tree only splits on feature 0; feature 1 is present in X but unused.
+	tree := &Node{
+		FeatureIndex: 0,
+		Threshold:    0.5,
+		NSamples:     10,
+		Left:         &Node{FeatureIndex: -1, Value: 1, NSamples: 5},
+		Right:        &Node{FeatureIndex: -1, Value: 9, NSamples: 5},
+	}
+	g := manualGBM([]*Node{tree}, 2, 0.0, 1.0)
+	X := [][]float64{{0, 100}, {1, -50}, {0.3, 0}, {0.7, 7}}
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !shapAlmostEqual(imp[1], 0) {
+		t.Errorf("imp[1] = %v, want 0 (feature 1 never split)", imp[1])
+	}
+	if imp[0] == 0 {
+		t.Errorf("imp[0] = 0; feature 0 is used and should have non-zero importance")
+	}
+}
+
+// TestShapImportance_SingleLeafTree: a tree with no splits uses no features;
+// every importance value must be 0.
+func TestShapImportance_SingleLeafTree(t *testing.T) {
+	g := manualGBM([]*Node{buildSingleLeafTree(7, 10)}, 3, 0.0, 1.0)
+	X := [][]float64{{1, 2, 3}, {4, 5, 6}}
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for j, v := range imp {
+		if !shapAlmostEqual(v, 0) {
+			t.Errorf("imp[%d] = %v, want 0", j, v)
+		}
+	}
+}
+
+// TestShapImportance_SliceGivesDifferentRankings: the SHAP-importance workflow
+// advantage — computing importance over different subsets of X surfaces
+// different feature rankings. Gain-based importance cannot do this.
+func TestShapImportance_SliceGivesDifferentRankings(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+
+	// Hot-A group (feature 0 is large): x0 = 1
+	hot := [][]float64{{1, 1}, {1, 0}}
+	impHot, _ := g.ShapImportance(hot)
+
+	// Cold-A group (feature 0 is small): x0 = 0
+	cold := [][]float64{{0, 1}, {0, 0}}
+	impCold, _ := g.ShapImportance(cold)
+
+	// Hot: feature 1 dominates (|phi[1]| avg = 12 vs |phi[0]| avg = 10).
+	if !(impHot[1] > impHot[0]) {
+		t.Errorf("hot group: feature 1 should dominate, got imp=%v", impHot)
+	}
+	// Cold: feature 0 dominates (|phi[0]| avg = 15 vs |phi[1]| avg = 4.5).
+	if !(impCold[0] > impCold[1]) {
+		t.Errorf("cold group: feature 0 should dominate, got imp=%v", impCold)
+	}
+}
+
+// TestShapImportance_Deterministic: same seed, same X => same importance.
+func TestShapImportance_Deterministic(t *testing.T) {
+	X, y := syntheticRegressionData(30, 3, 42)
+	cfg := DefaultConfig()
+	cfg.NEstimators = 10
+	cfg.MaxDepth = 3
+	cfg.Seed = 9
+
+	g1 := New(cfg)
+	if err := g1.Fit(X, y); err != nil {
+		t.Fatalf("g1.Fit: %v", err)
+	}
+	g2 := New(cfg)
+	if err := g2.Fit(X, y); err != nil {
+		t.Fatalf("g2.Fit: %v", err)
+	}
+
+	i1, _ := g1.ShapImportance(X)
+	i2, _ := g2.ShapImportance(X)
+	for j := range i1 {
+		if !shapAlmostEqual(i1[j], i2[j]) {
+			t.Errorf("imp[%d] differs: %v vs %v", j, i1[j], i2[j])
+		}
+	}
+}
+
+// TestShapImportance_MonotonicityWithDominantFeature: when y clearly depends
+// on feature 0, its SHAP importance should be the largest.
+func TestShapImportance_MonotonicityWithDominantFeature(t *testing.T) {
+	r := newDetermRand(123)
+	n, f := 80, 3
+	X := make([][]float64, n)
+	y := make([]float64, n)
+	for i := 0; i < n; i++ {
+		X[i] = make([]float64, f)
+		for j := 0; j < f; j++ {
+			X[i][j] = r.Float64()
+		}
+		// y driven almost entirely by feature 0; 1 and 2 are noise.
+		y[i] = 10*X[i][0] + 0.01*X[i][1] + 0.01*X[i][2]
+	}
+
+	cfg := DefaultConfig()
+	cfg.NEstimators = 30
+	cfg.MaxDepth = 3
+	cfg.Seed = 1
+	g := New(cfg)
+	if err := g.Fit(X, y); err != nil {
+		t.Fatalf("Fit: %v", err)
+	}
+
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("ShapImportance: %v", err)
+	}
+	if !(imp[0] > imp[1] && imp[0] > imp[2]) {
+		t.Errorf("feature 0 should dominate, got imp=%v", imp)
+	}
+}
+
+// --- Error paths -----------------------------------------------------------
+
+func TestShapImportance_Unfitted(t *testing.T) {
+	g := New(DefaultConfig())
+	_, err := g.ShapImportance([][]float64{{0, 0}})
+	if err != ErrModelNotFitted {
+		t.Errorf("err = %v, want ErrModelNotFitted", err)
+	}
+}
+
+func TestShapImportance_EmptyX(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	_, err := g.ShapImportance([][]float64{})
+	if err != ErrEmptyDataset {
+		t.Errorf("err = %v, want ErrEmptyDataset", err)
+	}
+}
+
+func TestShapImportance_FeatureMismatchPropagates(t *testing.T) {
+	g := manualGBM([]*Node{buildByHandTree()}, 2, 0.0, 1.0)
+	X := [][]float64{{1, 1}, {0}} // second row wrong width
+	_, err := g.ShapImportance(X)
+	if err != ErrFeatureCountMismatch {
+		t.Errorf("err = %v, want ErrFeatureCountMismatch", err)
+	}
+}
+
+// TestShapImportance_LogLoss: works with classifier; values are in log-odds.
+func TestShapImportance_LogLoss(t *testing.T) {
+	X, y := syntheticBinaryData(60, 3, 99)
+	cfg := DefaultConfig()
+	cfg.Loss = "logloss"
+	cfg.NEstimators = 15
+	cfg.MaxDepth = 3
+	cfg.Seed = 3
+	g := New(cfg)
+	if err := g.Fit(X, y); err != nil {
+		t.Fatalf("Fit: %v", err)
+	}
+	imp, err := g.ShapImportance(X)
+	if err != nil {
+		t.Fatalf("ShapImportance: %v", err)
+	}
+	if len(imp) != 3 {
+		t.Fatalf("len(imp) = %d, want 3", len(imp))
+	}
+	for j, v := range imp {
+		if v < 0 {
+			t.Errorf("imp[%d] = %v < 0", j, v)
+		}
+	}
+}
