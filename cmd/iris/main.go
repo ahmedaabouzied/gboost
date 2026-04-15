@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 
 	"github.com/ahmedaabouzied/gboost"
@@ -103,13 +105,84 @@ func main() {
 	logloss /= float64(len(yTest))
 	fmt.Printf("Test Log Loss: %.4f\n", logloss)
 
-	// Report feature importance.
+	// Report gain-based feature importance.
 	featureNames := ds.Header[:len(ds.Header)-1]
 	importance := model.FeatureImportance()
-	fmt.Println("\n--- Feature Importance ---")
+	fmt.Println("\n--- Gain-Based Feature Importance ---")
 	for i, name := range featureNames {
 		fmt.Printf("  %-15s %.4f\n", name, importance[i])
 	}
+
+	// --- SHAP section ---
+	// Per-device explanations (log-odds space) + global SHAP importance.
+	shapValues, err := model.ShapValues(XTest)
+	if err != nil {
+		log.Fatalf("ShapValues: %v", err)
+	}
+	baseValue := model.BaseValue()
+
+	fmt.Println("\n--- SHAP Explanations (first 5 test samples, log-odds) ---")
+	fmt.Printf("Base value (E[f(X)] in log-odds): %.4f\n\n", baseValue)
+	for i := 0; i < min(5, len(XTest)); i++ {
+		phi := shapValues[i]
+		sum := baseValue
+		for _, v := range phi {
+			sum += v
+		}
+		fmt.Printf("Sample %d  label=%.0f  raw=%.4f  prob=%.4f\n",
+			i, yTest[i], sum, sigmoid(sum))
+		// Sort features by |phi| descending.
+		type kv struct {
+			name string
+			val  float64
+		}
+		kvs := make([]kv, len(phi))
+		for j, v := range phi {
+			kvs[j] = kv{featureNames[j], v}
+		}
+		sort.Slice(kvs, func(a, b int) bool {
+			return math.Abs(kvs[a].val) > math.Abs(kvs[b].val)
+		})
+		for _, k := range kvs {
+			sign := "+"
+			if k.val < 0 {
+				sign = "-"
+			}
+			fmt.Printf("    %s %-15s %.4f\n", sign, k.name, math.Abs(k.val))
+		}
+	}
+
+	shapImp, err := model.ShapImportance(XTest)
+	if err != nil {
+		log.Fatalf("ShapImportance: %v", err)
+	}
+	fmt.Println("\n--- SHAP Feature Importance (mean |phi| on test set, log-odds) ---")
+	for i, name := range featureNames {
+		fmt.Printf("  %-15s %.4f\n", name, shapImp[i])
+	}
+
+	// Save SHAP values + metadata to JSON so the parity test can consume them.
+	out := map[string]any{
+		"base_value":     baseValue,
+		"shap_values":    shapValues,
+		"feature_names":  featureNames,
+		"shap_importance": shapImp,
+	}
+	f, err := os.Create("data/iris_go_shap.json")
+	if err != nil {
+		log.Fatalf("open iris_go_shap.json: %v", err)
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		log.Fatalf("encode iris_go_shap.json: %v", err)
+	}
+	fmt.Println("\nSaved data/iris_go_shap.json")
+}
+
+func sigmoid(x float64) float64 {
+	return 1.0 / (1.0 + math.Exp(-x))
 }
 
 func saveSplit(path string, featureHeaders []string, X [][]float64, y []float64) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 
 	"github.com/ahmedaabouzied/gboost"
 )
@@ -29,6 +30,7 @@ func main() {
 		LearningRate:   0.1,
 		MaxDepth:       4,
 		MinSamplesLeaf: 1,
+		SubsampleRatio: 1.0,
 		Loss:           "mse",
 	}
 
@@ -68,6 +70,57 @@ func main() {
 		fmt.Printf("%6.2f %6.2f | %6.2f | %9.2f | %+.2f\n",
 			XTest[i][0], XTest[i][1], actual, pred, err)
 	}
+
+	// --- SHAP explanations (regression) ---
+	shapValues, err := gbm.ShapValues(XTest)
+	if err != nil {
+		fmt.Printf("ShapValues error: %v\n", err)
+		return
+	}
+	base := gbm.BaseValue()
+
+	fmt.Println("\n=== SHAP Explanations (first 5 test samples) ===")
+	fmt.Printf("Base value (E[f(X)]): %.4f\n\n", base)
+	featureNames := []string{"x1", "x2"}
+	for i := 0; i < min(5, len(XTest)); i++ {
+		phi := shapValues[i]
+		sum := base
+		for _, v := range phi {
+			sum += v
+		}
+		fmt.Printf("Sample %d  actual=%.2f  predicted=%.4f  (base+phi=%.4f)\n",
+			i, yTest[i], testPreds[i], sum)
+
+		type kv struct {
+			name string
+			val  float64
+		}
+		kvs := make([]kv, len(phi))
+		for j, v := range phi {
+			kvs[j] = kv{featureNames[j], v}
+		}
+		sort.Slice(kvs, func(a, b int) bool {
+			return math.Abs(kvs[a].val) > math.Abs(kvs[b].val)
+		})
+		for _, k := range kvs {
+			sign := "+"
+			if k.val < 0 {
+				sign = "-"
+			}
+			fmt.Printf("    %s %-4s %.4f\n", sign, k.name, math.Abs(k.val))
+		}
+	}
+
+	shapImp, err := gbm.ShapImportance(XTest)
+	if err != nil {
+		fmt.Printf("ShapImportance error: %v\n", err)
+		return
+	}
+	fmt.Println("\n=== SHAP Feature Importance (mean |phi| on test set) ===")
+	for i, name := range featureNames {
+		fmt.Printf("  %-4s %.4f\n", name, shapImp[i])
+	}
+	fmt.Println("\nExpected ranking: x2 (coef=3) > x1 (coef=2)")
 }
 
 // generateData creates synthetic data: y = 2*x1 + 3*x2 + noise
